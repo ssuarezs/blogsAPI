@@ -1,46 +1,80 @@
 const blogsRouter = require('express').Router()
 const Blog = require('../models/Blog')
+const User = require('../models/User')
+
+const { tokenExtractor } = require('../utils/middleware')
 
 blogsRouter.get('/', async(request, response) => {
-  const blogs = await Blog.find({}) 
+  const blogs = await Blog.find({})
+		.populate('user', { 
+			username: 1,
+			name: 1,
+			id: 1
+		}) 
   response.json(blogs)
 })
 
 blogsRouter.get('/:id', async (req, res, next) => {
 	const { id } = req.params
-	Blog.findById(id)
-		.then(blog => {
-			if(blog) return res.json(blog)
-			res.status(404).end()
-		})
-		.catch(err => next(err))
+	const blog = await Blog.findById(id)
+	if(blog) return res.json(blog)
+	res.status(404).end()
 })
 
-blogsRouter.post('/', async (req, res, next) => {
-	const newBlog = new Blog(req.body)
+blogsRouter.post('/', tokenExtractor, async (req, res, next) => {
+	const { title, author, url, likes } = req.body
+	const { userId } = req
 
-	newBlog
-		.save()
-		.then(result => {
-			res.status(201).json(result)
-		})
-		.catch(err => next(err))
+	console.log(userId)
+	const user = await User.findById(userId)
+	console.log(user)
+
+	const newBlog = new Blog({
+		title,
+		author,
+		url,
+		likes,
+		user: user._id 
+	})
+
+	if(!newBlog || !newBlog.title || !newBlog.url){
+		return res.status(400).json({ error: 'title or url is missing' })
+	}
+
+	const savedBlog = await newBlog.save()
+	user.blogs = user.blogs.concat(savedBlog._id)
+	await user.save()
+
+	res.status(201).json(savedBlog)
 })
 
-blogsRouter.delete('/:id', async (req, res, next) => {
+blogsRouter.delete('/:id', tokenExtractor, async (req, res, next) => {
 	const { id } = req.params
-	Blog.findByIdAndDelete(id)
-		.then(() => res.status(204).end())
-		.catch(err => next(err))
+	const { userId } = req
+
+	const blog = await Blog.findById(id)
+	const user = await User.findById(userId)
+
+	if (!( user && blog )){
+		return res.status(400).send({ error: 'user or blog not found' })
+	}
+
+	if (!( blog.user.toString() === userId.toString() )) {
+		return res.status(401).send({ error: 'the user is not the ower to delete blog' })
+	}
+
+	user.blogs = user.blogs.filter(blog => blog.id !== id)
+	await user.save()
+	await Blog.findByIdAndDelete(id)
+
+	res.status(204).end()
 })
 
 blogsRouter.put('/:id', async (req, res, next) => {
 	const { id } = req.params
 	const newBlog = req.body
-
-	Blog.findByIdAndUpdate(id, newBlog, {new: true})
-		.then(result => res.json(result))
-		.catch(err => next(err))
+	const result = await Blog.findByIdAndUpdate(id, newBlog, {new: true})
+	res.json(result)
 })
 
 module.exports = blogsRouter
