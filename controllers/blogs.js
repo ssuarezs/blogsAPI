@@ -25,9 +25,7 @@ blogsRouter.post('/', tokenExtractor, async (req, res, next) => {
 	const { title, author, url, likes } = req.body
 	const { userId } = req
 
-	console.log(userId)
 	const user = await User.findById(userId)
-	console.log(user)
 
 	const newBlog = new Blog({
 		title,
